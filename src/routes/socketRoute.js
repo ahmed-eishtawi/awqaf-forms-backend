@@ -1,3 +1,4 @@
+import { get } from "http";
 import db from "../config/database.js";
 
 /* */
@@ -20,7 +21,10 @@ const useSocketIo = (io) => {
       }
       //
       else {
-        io.emit("get_all_sides", "invalid side");
+        io.emit("get_all_sides", {
+          error: "Invalid side",
+          code: 400,
+        });
         return;
       }
 
@@ -31,7 +35,10 @@ const useSocketIo = (io) => {
         }
         //
         else {
-          io.emit("get_all_sides", "side not found");
+          io.emit("get_all_sides", {
+            error: "side not found",
+            code: 404,
+          });
         }
       } catch (err) {
         console.error(`Error getting sides: ${err.message}`);
@@ -43,31 +50,35 @@ const useSocketIo = (io) => {
       const { side_id } = data;
 
       /* get the forms for specific side */
-
-      let side_forms = [];
-
       const get_forms = db.prepare(
-        `SELECT form_number FROM forms WHERE side_id = ? AND is_selected = FALSE;`
+        ` SELECT form_number FROM forms
+          WHERE side_id = ? AND is_selected = FALSE;`
       );
+      const get_selected_side = db.prepare(`SELECT * FROM sides WHERE id = ?;`);
       try {
-        const result = get_forms.all(side_id);
+        const get_forms_result = get_forms.all(side_id);
+        const get_selected_side_result = get_selected_side.all(side_id);
 
-        if (result.length > 0) {
-          side_forms = result.map((form) => form.form_number);
+        if (
+          get_selected_side_result.length > 0 &&
+          get_forms_result.length > 0
+        ) {
+          io.emit("get_selected_side", {
+            selected_side: get_selected_side_result[0],
+            result: get_forms_result.map((form) => form.form_number),
+          });
         }
         //
         else {
-          io.emit("get_selected_side", `side not found`);
+          io.emit("get_selected_side", {
+            error: "side or forms not found",
+            code: 404,
+          });
           return;
         }
       } catch (err) {
         console.error(`Error getting forms: ${side_id} - ${err.message}`);
       }
-
-      io.emit("get_selected_side", {
-        side_id,
-        side_forms,
-      });
     });
 
     /* */
@@ -75,28 +86,55 @@ const useSocketIo = (io) => {
       const { side_id, form_number } = data;
       /* update the form to be selected */
       const update_form = db.prepare(
-        `UPDATE forms SET is_selected = TRUE WHERE side_id = ? AND form_number = ?`
+        `UPDATE forms SET is_selected = TRUE WHERE side_id = ? AND form_number = ? AND is_selected = FALSE;`
       );
+
+      /* update the form is_selected flag */
       try {
         const result = update_form.run(side_id, form_number);
 
         /* if there is no changes in the database then the form was not found */
         if (result.changes == 0) {
-          io.emit(
-            "get_selected_form",
-            `form not found: ${form_number} for side: ${side_id}`
-          );
+          io.emit("get_selected_form", {
+            error: "side or form not found",
+            code: 404,
+          });
           return;
         }
       } catch (err) {
         console.error(`Error updating form: ${side_id} - ${err.message}`);
       }
 
-      /* emit the selected form */
-      io.emit("get_selected_form", {
-        side_id,
-        form_number,
-      });
+      /* get the selected form */
+      const get_selected_form = db.prepare(
+        `SELECT forms.form_number FROM forms
+          WHERE forms.side_id = ? AND forms.form_number = ?;`
+      );
+
+      /* get the selected form to send it to the client */
+      try {
+        const result = get_selected_form.get(side_id, form_number);
+
+        if (result) {
+          io.emit("get_selected_form", result);
+        }
+        //
+        else {
+          io.emit("get_selected_form", {
+            error: "side or form not found",
+            code: 404,
+          });
+        }
+      } catch (err) {
+        console.error(
+          `Error getting selected form: ${side_id} - ${err.message}`
+        );
+      }
+    });
+
+    /* */
+    socket.on("reset_values", () => {
+      io.emit("choose_another_student");
     });
 
     /* */
