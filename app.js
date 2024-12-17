@@ -2,7 +2,8 @@ import express from "express";
 import dotenv from "dotenv";
 import { Server } from "socket.io";
 import useSocketIo from "./src/routes/socketRoute.js";
-import { createServer } from "http";
+import restoreDatabase from "./src/routes/restoreDatabase.js";
+import cors from "cors";
 
 /* Load environment variables */
 dotenv.config();
@@ -10,6 +11,12 @@ dotenv.config();
 /* Set up the server */
 const PORT = process.env.PORT || 3501;
 const app = express();
+
+app.use(
+  cors({
+    origin: "*",
+  })
+);
 
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
@@ -29,3 +36,5 @@ useSocketIo(socket_io);
 app.get("/", (req, res) => {
   res.status(200).send("Powered by Ahmed Eishtawi");
 });
+
+app.get("/api/restore-database", restoreDatabase);
